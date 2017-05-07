@@ -6,13 +6,35 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<map>
+#include<vector>
+#include<array>
+#include<iomanip>
+
 using namespace std;
+
+class DNA_pool {
+public:
+    int add_strand(array<string,2> strand) {
+        strands.push_back(strand);
+    }
+
+    string get_strand(long index) {
+        return strands[index][0];
+    }
+
+    long num_strands() {
+        return strands.size();
+    }
+
+private:
+    vector<array<string,2>> strands;
+};
 
 //abstract encoder class with virtual encode/decode functions and helper functions implemented
 class Encoder {
 public:
-    virtual string encode(const string& input) = 0;                    //abstract encode function. implement with either Goldman or XOR encoding in subclass
-    virtual string decode(const string& key) = 0;                    //abstract decode function; implement similarly
+    virtual int encode(const string& input, DNA_pool& pool) = 0;                    //abstract encode function. implement with either Goldman or XOR encoding in subclass
+    virtual string decode(vector<string> strands) = 0;                    //abstract decode function; implement similarly
 
 protected:
     short prev, primer_index = 0;                   //used to store previous nucleotide and which primer
@@ -23,6 +45,7 @@ protected:
     map<short, string> ternary_map;                 //map of ASCII values to ternary string via Huffman code
     map<string, short> ascii_map;
     map<char, char> complements;
+    map<string, char> xor_map;
     string primers[6][2] = {{"CGACAGTAACTACACGGCGA", "CTTGGTCAGACGAGTGCATG"}, {"GTAGCAATTGGCAGGTCCAT", "GAGTTACGCGGGGATACATG"}, {"GTAGCAATTGGCAGGTCCAT", "TGGTACGGGAACAGCACATG"}, {"CGACAGTAACTACACGGCGA", "CGTTAAGACGTAGCCCCATG"}, {"GTAGCAATTGGCAGGTCCAT", "CTCACCGCTCTTGTAGCATG"}, {"CGACAGTAACTACACGGCGA", "GACCGGCAATCTCTTCCTGG"}};                             //array of primers
 
 
@@ -570,17 +593,60 @@ protected:
     }
 
     int init_primers(void) {
-        /*string primer0[2], primer1[2], primer2[2], primer3[2], primer4[2], primer5[2];
-        primers = {primer0, primer1, primer2, primer3, primer4, primer5};
+        array<array<string,2>, 6> primers = {{
+            {"CGACAGTAACTACACGGCGA", "CTTGGTCAGACGAGTGCATG"},
+            {"GTAGCAATTGGCAGGTCCAT", "GAGTTACGCGGGGATACATG"},
+            {"GTAGCAATTGGCAGGTCCAT", "TGGTACGGGAACAGCACATG"},
+            {"CGACAGTAACTACACGGCGA", "CGTTAAGACGTAGCCCCATG"},
+            {"GTAGCAATTGGCAGGTCCAT", "CTCACCGCTCTTGTAGCATG"},
+            {"CGACAGTAACTACACGGCGA", "GACCGGCAATCTCTTCCTGG"},
+        }};
+        return 0;
+    }
 
-        primer0 = {"CGACAGTAACTACACGGCGA", "CTTGGTCAGACGAGTGCATG"};
-        primer1 = {"GTAGCAATTGGCAGGTCCAT", "GAGTTACGCGGGGATACATG"};
-        primer2 = {"GTAGCAATTGGCAGGTCCAT", "TGGTACGGGAACAGCACATG"};
-        primer3 = {"CGACAGTAACTACACGGCGA", "CGTTAAGACGTAGCCCCATG"};
-        primer4 = {"GTAGCAATTGGCAGGTCCAT", "CTCACCGCTCTTGTAGCATG"};
-        primer5 = {"CGACAGTAACTACACGGCGA", "GACCGGCAATCTCTTCCTGG"};*/
+    int init_xor_map() {
+        xor_map["AxA"] = 'A';
+        xor_map["AxC"] = 'C';
+        xor_map["CxA"] = 'C';
+        xor_map["AxG"] = 'G';
+        xor_map["GxA"] = 'G';
+        xor_map["AxT"] = 'T';
+        xor_map["TxA"] = 'T';
+        xor_map["CxC"] = 'A';
+        xor_map["CxG"] = 'T';
+        xor_map["GxC"] = 'T';
+        xor_map["CxT"] = 'G';
+        xor_map["TxC"] = 'G';
+        xor_map["GxG"] = 'A';
+        xor_map["GxT"] = 'C';
+        xor_map["TxG"] = 'C';
+        xor_map["TxT"] = 'A';
 
         return 0;
+    }
+
+    int init_stuff(void) {
+        init_indices();
+        init_huff();
+        init_ascii();
+        init_complement();
+        init_primers();
+        init_xor_map();
+        return 1;
+    }
+
+    string to_string(int num) {
+        ostringstream convert;
+        convert << num;
+        return convert.str();
+    }
+
+    template <class BidirectionalIterator> void reverse (BidirectionalIterator first, BidirectionalIterator last)
+    {
+        while ((first!=last)&&(first!=--last)) {
+            std::iter_swap (first,last);
+            ++first;
+        }
     }
 
     /* Simple base 10 to base X converter with input parameters (X, base).
@@ -592,37 +658,14 @@ protected:
         int remainder; int digit_limit = 4;
         for (int i = 0; i < digit_limit; i++) {
             if (i == 0) { divresult = div(input, base); }
-            else { 
-                divresult = div(divresult.quot, base); 
+            else {
+                divresult = div(divresult.quot, base);
             }
             remainder = divresult.rem; //sets remainder in ternary form
             output.append(to_string(remainder));
         }
         reverse(output.begin(), output.end()); //must reverse order of remainders
         return output;
-    }
-
-    //subfunction, finds index of a value in an array
-    int get_Index(const char *array, size_t size, char c) {
-      const char* end = array + size;
-      const char* get = std::find(array, end, c);
-      return (end == get)? -1 : (get - array);
-    }
-
-    std::string find_complement(const std::string& nucleotide) {
-        if (nucleotide == "A") {return "T";}
-        else if (nucleotide == "T") { return "A";}
-        else if (nucleotide == "C") { return "G";}
-        else if (nucleotide == "G") { return "C";}
-        else {return "X";}
-    }
-
-    std::string generate_antisense(const std::string& sense) {
-        std::string antisense;
-        for (int i = 0; i < sense.length(); i++) {
-            antisense.append(find_complement(std::string(1, sense[i])));
-        }
-        return antisense;
     }
 
     //ternary
@@ -642,16 +685,6 @@ protected:
         return nucleotides[prev];
     }
 
-    //reads the last nucleotide and the nucleotide in question to determine
-    //its appropriate ternary bit equivalent
-    int sequence_nucleotide(char c) {
-        int index = get_Index(nucleotides, 4, c);
-        int ternary = (index - prev + 3) % 4;
-        prev = index;
-        //std::cout << ternary << std::endl;
-        return ternary;
-    }
-
     //read in string, convert each ternary digit to a nucleotide
     //return nucleotide sequence representing input stream
     string to_nucleotides(const string& ternary) {
@@ -664,12 +697,66 @@ protected:
         return n;
     }
 
-    const std::string from_ternary(const std::string& ternary_string) {
-        std::string decoded_payload;
+    string get_address(int num) {
+        string ternary = base_converter(num, 3);
+        string address = string(6-ternary.length(), 0) + ternary;
+        return to_nucleotides(ternary);
+    }
+
+    string to_complement(const string& strand) {
+        string antisense;
+        for(int i = 0; i < strand.length(); i++) {
+            antisense += complement[strand[i]];
+        }
+        return antisense;
+    }
+
+    //generate one strand of DNA
+    map<string,string> synthesize_strand(int is_complement, const string& ternary, int num) {
+        map<string,string> strand;
+        prev = indices[primers[primer_index][0].back()];
+        strand["s"] = rotate_nucleotides(is_complement);
+        strand["payload"] = to_nucleotides(ternary);
+        strand["address"] = get_address(num);
+
+        return strand;
+    }
+
+    //store information in DNA
+    vector<map<string,string>> to_dna(const string& input) {
+        string ternary;
+
+        vector<map<string,string>> ret_list;
+
+        ternary = to_ternary(input);
+
+        short num_strands = floor(ternary.length()/payload_length)+1;
+        short strand_size = ceil(ternary.length()/num_strands);
+
+        for (int i = 0; i < num_strands-1; i++)
+            ret_list.push_back(synthesize_strand(0, ternary.substr(i*strand_size, strand_size), i));
+        ret_list.push_back(synthesize_strand(0, ternary.substr((num_strands-1)*strand_size), num_strands-1));
+
+        return ret_list;
+    }
+
+    int to_pool(vector<map<string,string>> strands, DNA_pool& pool) {
+        for(map<string,string> s : strands) {
+            array<string,2> strand;
+            strand[0] = primers[primer_index][0] + s["s"] + s["payload"] + s["address"] + s["s"] + primers[primer_index][1];
+            strand[1] = to_complement(strand[0]);
+            pool.add_strand(strand);
+        }
+        primer_index++;
+        return 1;
+    }
+
+    const string from_ternary(const string& ternary_string) {
+        string decoded_payload;
         int i = 0;
-        std::string byte;
+        string byte;
         //loop till we've found all bytes
-        while (i != ternary_string.length()) {
+        while (i < ternary_string.length()) {
             //check if byte is 5 digits long, if not, find its 6 digit makeup
             byte = ternary_string.substr(i, 5);
             if (ascii_map.find(byte) != ascii_map.end() ) { i+=5; } // m.find("f") == m.end()
@@ -677,96 +764,76 @@ protected:
                 byte = ternary_string.substr(i, 6);
                 i+=6;
             }
+            //cout << byte + "\t";
             decoded_payload += (char)ascii_map[byte];
-            if (i > ternary_string.length()) { std::cout << "ERROR\n";}
+            if (i > ternary_string.length()) { cout << "ERROR   \n";}
         }
         return decoded_payload;
     }
 
+    //subfunction, finds index of a value in an array
+    int get_index(char *ra, size_t len, char c) {
+      char* last = ra + len;
+      //char* get = find(ra, last, c);
+      char* get = ra;
+      return (last == get)? -1 : (get - ra);
+    }
+
+    //reads the last nucleotide and the nucleotide in question to determine
+    //its appropriate ternary bit equivalent
+    int sequence_nucleotide(char c) {
+        int index = indices[c];
+        int ternary = (index - prev + 3) % 4;
+        prev = index;
+        //std::cout << ternary << std::endl;
+        return ternary;
+    }
+
     //calls sequence nucleotide, forloops each N and returns ternary bits
-    std::string from_nucleotides(const std::string& N) {
-        std::string ternary_string;
+    string from_nucleotides(const string& N) {
+        string ternary_string;
         //cout << endl << "N     " << N << endl;
         //iterates through payload, converting nucleotide array
         //into ternary array
-        for (int i = 0; i < N.length(); i++)
-            ternary_string += std::to_string(sequence_nucleotide(N[i]));
+        for (int i = 0; i < N.length(); i++) {
+            ostringstream convert;
+            convert << sequence_nucleotide(N[i]);
+            ternary_string += convert.str();
+        }
         return ternary_string;
     }
 
-    //generate one strand of DNA
-    string synthesize_strand(const string& primer1, const string& primer2, int is_complement, const string& ternary, int num) {
-        string s, payload, address;
-        //s = rotate_nucleotides(is_complement);
-        payload = to_nucleotides(ternary);
-        //address = to_nucleotides(to_string(num));
-        //address = "0";
-        string strand = primer1 + s + payload + address + s + primer2;
-        //return strand
-        //cout << " : " << strand << " : " << endl;
-        return payload;
-    }
-
-    //store information in DNA
-   string to_dna_strands(const string& input) {
-        string primer1, primer2, ternary, encoded_strand;
-
-        primer1 = primers[primer_index++][0];
-        primer2 = primers[primer_index][1];
-        prev = indices[primer1.back()];
-        //cout << input << endl;
-
-        ternary = to_ternary(input);
-        //cout << "\n ternary code for encoded string: " << ternary << endl;
-
-        short num_strands = floor(ternary.length()/payload_length)+1;
-        short strand_size = ceil(ternary.length()/num_strands);
-        //cout << "num strands: " << num_strands << " strand size: " << strand_size << endl;
-
-        for (int i = 0; i < num_strands-1; i++)
-            encoded_strand += synthesize_strand(primer1, primer2, 0, ternary.substr(i*strand_size, strand_size), i);
-        encoded_strand +=  synthesize_strand(primer1, primer2, 0, ternary.substr((num_strands-1)*strand_size), num_strands-1);
-        //cout << encoded_strand << endl;
-        /*
+    string sequence(const string& input) {
         string output;
-        for (int i = 0; i < num_strands-1; i++)
-            output = synthesize_strand(primer1, primer2, 0, ternary.substr(i*strand_size, strand_size), i);
-        output += synthesize_strand(primer1, primer2, 0, ternary.substr((num_strands-1)*strand_size), num_strands-1);
-        return output;
-        */
-        return encoded_strand;
-    }
-
-    string from_dna_strand(const string& input) {
-        string output;
-        prev = 0; //reset prev
+        //prev = 0; //reset prev
         //cout << endl << "string to be decoded: " << input << endl;
         output = from_nucleotides(input);
+        //cout << output;
         //cout << endl << "from_nucleotides: " << output << endl;
-        output = from_ternary(output);
-        //cout << endl << "from_ternary(final decryption): " << output << endl;
         return output;
     }
-
 };
 
 //Encoder for testing purposes once we're ready to test object-oriented approach
 class TestingEncoder : Encoder {
 public:
     TestingEncoder () {
-        init_indices();
-        init_huff();
-        init_ascii();
-        init_complement();
-        init_primers();
+        init_stuff();
     }
 
-    string encode(const string& input) {
-        return to_dna_strands(input);
+    int encode(const string& input, DNA_pool& pool) {
+        to_pool(to_dna(input), pool);
+        return 1;
     }
 
-    string decode(const string& input) {
-        return from_dna_strand(input);
+    string decode(vector<string> strands) {
+        string strand, ternary = "";
+        for (int i = 0; i < strands.size(); i++) {
+            strand = strands[i];
+            prev = indices[strand[20]];
+            ternary += sequence(strand.substr(21, strand.length() - 46));
+        }
+        return from_ternary(ternary);
     }
 };
 
@@ -776,25 +843,75 @@ public:
     //add
 }; */
 
-/* XOR encoder/decoder class
+ //XOR encoder/decoder class
 class XOREncoder : Encoder {
 public:
-    //add
-}; */
+    XOREncoder () {
+        init_stuff();
+    }
+
+    string dna_xor(string payload1, string payload2) {
+        string new_payload = "";
+        for(int i = 0; i < payload1.length() && i < payload2.length(); i++) {
+            new_payload += xor_map[payload1.substr(i,1) + "x" + payload2.substr(i,1)];
+        }
+        return new_payload;
+    }
+
+    string xor_address(int num1, int num2) {
+        //return to_nucleotides("1" + base_converter(num1,3).substr(5) + base_converter(num2,3).substr(5));
+        return to_nucleotides("1" + get_address(num1).substr(1));
+    }
+
+    vector<map<string,string>> xor_encode(vector<map<string,string>> strands) {
+        int len = strands.size();
+        for(int i = 0; i+1 < len; i+=2) {
+            map<string,string> xor_strand;
+            prev = indices[primers[primer_index][0].back()];
+            xor_strand["s"] = rotate_nucleotides(0);
+            xor_strand["payload"] = dna_xor(strands[i]["payload"], strands[i+1]["payload"]);
+            xor_strand["address"] = xor_address(i, i+1);
+            strands.push_back(xor_strand);
+        }
+        return strands;
+    }
+
+    int encode(const string& input, DNA_pool& pool) {
+        to_pool(xor_encode(to_dna(input)), pool);
+        return 1;
+    }
+
+    string decode(vector<string> strands) {
+        string strand, ternary = "";
+        int num_strands = ceil(.6*strands.size());
+        for (int i = 0; i < num_strands; i++) {
+            strand = strands[i];
+            prev = indices[strand[20]];
+            ternary += sequence(strand.substr(21, strand.length() - 46));
+        }
+        return from_ternary(ternary);
+    }
+};
 
 int main(void) {
-    string test_name = "adwait jog";
-    string test_blah = "blah blah blah";
-    string test_input, encrypted_input, sequenced_input;
-    string encrypted_name = "CTCTGCAGTACGCGACTCTGCGCTAGTGCTATGATGTAGCGCTCGTGACA";
-    string encrypted_blah = "TGTCGTGACTAGAGCACACGTGCTGCACTACAGTCGAGATGTGTACATCATGTCGTGACTAGAGCACACG";
-    cout << "Enter string to be synthesized/sequenced: ";
-    getline(cin, test_input); // works to get more than first word, as opposed to 'cin >> str'
-    //cout << test_input << endl;
-    TestingEncoder *tester = new TestingEncoder;
-    encrypted_input = tester->encode(test_input);
-    cout << "encrypted_input: " << encrypted_input << endl;
-    sequenced_input = tester->decode(encrypted_input);
-    cout << "sequenced_input: " << sequenced_input << endl;
+    //string test = "single strand test";
+    string test = "This is a paragraph of text that I'm using to test DNA synthesis simulation. This should result in multiple strands being synthesized to test that functionality. Testing 123...";
+    //string test = "Happy birthday Halle!";
+    //TestingEncoder *tester = new TestingEncoder;
+    XOREncoder *tester = new XOREncoder;
+    DNA_pool *pool = new DNA_pool;
+    tester->encode(test, *pool);
+    string out_string, strand, ret_string;
+    vector<string> strands;
+    cout << "In nucleotides: \n";
+    for(int i = 0; i < pool->num_strands(); i++) {
+        strand = pool->get_strand(i);
+        out_string = strand + "\n\n";
+        cout << out_string;
+        strands.push_back(strand);
+    }
+    cout << "Original data: \n";
+    ret_string = tester->decode(strands);
+    cout << ret_string;
     return 0;
 }
